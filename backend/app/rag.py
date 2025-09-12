@@ -25,6 +25,23 @@ class LocalEmbedder:
         v = v / (np.linalg.norm(v) + 1e-9)
         return v
 
+
+def rank_chunks(query: str, chunks: list[str], embedder: LocalEmbedder, top_k: int = 3):
+    # Embed query
+    q_vec = embedder.embed(query)
+
+    # Embed chunks and calculate similarity
+    scored = []
+    for chunk in chunks:
+        c_vec = embedder.embed(chunk)
+        sim = np.dot(q_vec, c_vec)  # cosine similarity (already normalized)
+        scored.append((sim, chunk))
+
+    # Sort by similarity
+    scored.sort(reverse=True, key=lambda x: x[0])
+    # Return top_k
+    return [c for _, c in scored[:top_k]]
+
 # ---- Vector store abstraction ----
 class InMemoryStore:
     def __init__(self, dim: int = 384):
