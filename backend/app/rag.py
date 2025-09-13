@@ -25,23 +25,6 @@ class LocalEmbedder:
         v = v / (np.linalg.norm(v) + 1e-9)
         return v
 
-
-def rank_chunks(query: str, chunks: list[str], embedder: LocalEmbedder, top_k: int = 3):
-    # Embed query
-    q_vec = embedder.embed(query)
-
-    # Embed chunks and calculate similarity
-    scored = []
-    for chunk in chunks:
-        c_vec = embedder.embed(chunk)
-        sim = np.dot(q_vec, c_vec)  # cosine similarity (already normalized)
-        scored.append((sim, chunk))
-
-    # Sort by similarity
-    scored.sort(reverse=True, key=lambda x: x[0])
-    # Return top_k
-    return [c for _, c in scored[:top_k]]
-
 # ---- Vector store abstraction ----
 class InMemoryStore:
     def __init__(self, dim: int = 384):
@@ -228,9 +211,28 @@ class RAGEngine:
         return [meta for score, meta in results]
 
 
+    def keyword_filter(self, query: str, chunks: List[Dict]) -> List[Dict]:
+        keywords = set(query.lower().split())
+        filtered = []
+        for chunk in chunks:
+            chunk_text_tokens = set(chunk.get("text", "").lower().split())
+            # Require at least 50% of query keywords to appear in the chunk
+            if len(keywords & chunk_text_tokens) / len(keywords) >= 0.5:
+                if any(kw in (chunk.get("section") or "").lower() for kw in ["shipping", "delivery", "sla"]):
+                    filtered.append(chunk)
+        return filtered
+
+
     def generate(self, query: str, contexts: List[Dict]) -> str:
         t0 = time.time()
-        answer = self.llm.generate(query, contexts)
+
+        relevant_contexts = self.keyword_filter(query, contexts)  # assumes you add keyword_filter as a method
+        if not relevant_contexts:
+            # fallback to top 2 if nothing matches
+            relevant_contexts = contexts[:2]
+
+
+        answer = self.llm.generate(query, relevant_contexts)
         self.metrics.add_generation((time.time()-t0)*1000.0)
         return answer
 

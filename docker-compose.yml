@@ -16,7 +16,7 @@ services:
     build: ./backend
     environment:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-local-384}
-      - LLM_PROVIDER=${LLM_PROVIDER:-stub}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
       - VECTOR_STORE=${VECTOR_STORE:-qdrant}

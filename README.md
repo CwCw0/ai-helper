@@ -48,4 +48,7 @@ Ingestion worked, but answers weren’t filtered.
 
 Discovery: Without API key, backend uses a stub LLM and built-in embeddings.
 
+- Update, chunks updated and answers are better filtered, in terms for stub, the answers are provided but not clean as expected
+- OpenAI LLM implementation works, due to the RAG.py filtering, for example; the question about returns provides a much cleaner and better cited and informed answer. Question about shipping SLA, proves to not be provided due to filtering issues. But source of data is still provided.
+
 4. Switching to Real LLM (Haven't fixed to this point yet, fixing local filtering first)
