@@ -96,10 +96,14 @@ Learning: Hybrid retrieval (embedding + keyword scoring) improves relevance.
 6. Testing & Debugging
 
 Attempt: Ran pytest; some tests failed due to environment conflicts.
-
-Fix: Adjusted environment setup; basic test coverage now runs.
+Used in backend container
+docker compose run --rm -e PYTHONPATH=/app backend pytest -v
 
 Learning: Even partial testing helps catch regressions in retrieval and generation.
+
+7. Health and Metrics
+
+After testing, health was not 100%
 
 ---- Notes & Lessons Learned ----
 
@@ -108,6 +112,8 @@ LLM responses depend heavily on chunk filtering and retrieval logic.
 Using stub embeddings is useful for local testing, but real OpenAI embeddings improve answer relevance.
 
 Document your workflow—even failures are part of the learning process.
+
+Despite not being able to meet the expectation and to complete the task entirely, did what was possible and pushed through personal barriers and found fixes after trail and error
 
 ---- Summary ----
 
