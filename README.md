@@ -117,7 +117,7 @@ Despite not being able to meet the expectation and to complete the task entirely
 
 ---- Summary ----
 
-This project shows not only a working RAG setup but also all the steps, experiments, and troubleshooting efforts.
+This project shows working RAG that still requires tweaking and fixing setup but also all the steps, experiments, and troubleshooting efforts.
 
 Customer Question Example
 
