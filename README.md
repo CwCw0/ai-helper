@@ -1,54 +1,130 @@
 AI Policy & Product Helper
 
-A local-first RAG starter with FastAPI, Next.js, and Qdrant. Runs with Docker Compose, supports both local stub models and OpenAI.
+A local-first RAG starter built with FastAPI, Next.js, and Qdrant.
+Supports both stub LLMs and OpenAI LLMs. Runs with Docker Compose.
 
 🚀 Quick Start
 
-# copy env
+1. Copy the environment file
+   cp .env.example .env
 
-cp .env.example .env
+2. Build and run all services
+   docker compose up --build
 
-# run all services
-
-docker compose up --build
+3. Access Services
 
 Frontend: http://localhost:3000
 
-Backend (Swagger): http://localhost:8000/docs
+Backend Swagger Docs: http://localhost:8000/docs
 
-Qdrant: http://localhost:6333
+Qdrant UI: http://localhost:6333
 
-Ingest Docs
-curl -X POST http://localhost:8000/api/ingest
+4. Ingest Documents
+   curl -X POST http://localhost:8000/api/ingest
 
-Ask a Question
-curl -X POST http://localhost:8000/api/ask -H 'Content-Type: application/json' \
- -d '{"query":"What’s the shipping SLA to East Malaysia for bulky items?"}'
+5. Ask a Question
+   curl -X POST http://localhost:8000/api/ask \
+   -H 'Content-Type: application/json' \
+   -d '{"query":"What’s the shipping SLA to East Malaysia for bulky items?"}'
 
-Tests
-docker compose run --rm backend pytest -q
+6. Run Tests
+   docker compose run --rm backend pytest -q
+   🍽 Installation & Tools Used
 
-My Journey & Problem-Solving
+Docker & Docker Compose
+
+Python 3.11
+
+FastAPI
+
+Next.js
+
+Qdrant (vector DB)
+
+OpenAI Python SDK (for real LLM)
+
+Local embedder (deterministic embeddings)
+
+Pytest for testing
+
+----My Journey & Problem-Solving---
+
+Here’s a detailed log of what I tried, learned, and fixed:
 
 1. Git Setup Issues
 
-Problem: Repo had .git but git status failed.
+Problem: Repo had .git but git status failed; publishing failed due to secret key handling.
 
-Fix: Found .DS_Store conflicts. Cleaned with .gitignore and git rm --cached. Re-initialized repo properly.
+Fix: Found .DS_Store conflicts, cleaned them with .gitignore and git rm --cached, reinitialized repo, and moved files to local .gitignore method.
+
+Learning: Hidden system files can silently break workflows—tracking them early saves headaches.
 
 2. Docker Compose Setup
 
-First run: unsure if services were connected.
+Problem: Services didn’t seem connected on first run.
 
-Fix: Learned to confirm by checking logs + endpoints. Verified frontend, backend, and Qdrant all running.
+Fix: Checked logs and endpoints; verified frontend, backend, and Qdrant running correctly.
 
-3. Ingestion + Q&A
+Learning: Always validate service connectivity early; Docker networking issues can appear subtle.
 
-Ingestion worked, but answers weren’t filtered.
+3. Ingestion & RAG Retrieval
 
-Discovery: Without API key, backend uses a stub LLM and built-in embeddings.
+Observation: Initial ingestion failed; endpoints and vector storage needed adjustments.
 
-- Update, chunks updated and answers are better filtered, in terms for stub, the answers are provided but not clean as expected
-- OpenAI LLM implementation works, due to the RAG.py filtering, for example; the question about returns provides a much cleaner and better cited and informed answer. Question about shipping SLA, proves to not be provided due to filtering issues. But source of data is still provided.
+Fix: Corrected ingestion calls and chunking logic. Stub LLM now produces answers, though filtering logic required improvements.
 
-4. Switching to Real LLM (Haven't fixed to this point yet, fixing local filtering first)
+Learning: Local stub embeddings are useful for testing, but accurate retrieval depends on chunk quality and scoring logic.
+
+4. OpenAI LLM Integration
+
+Attempt: Switched from stub to OpenAI embeddings and generation.
+
+Observation: Answers are now cleaner, cited with sources, and more relevant.
+
+Challenge: Some queries (e.g., shipping SLA) highlight remaining filtering gaps.
+
+Learning: Real LLM integration improves quality but retrieval must be solid.
+
+5. Embedder & Filtering Experiments
+
+Tried LocalEmbedder, hash-based embeddings, and OpenAI embeddings.
+
+Tweaked keyword scoring and chunk filtering to improve top-context selection.
+
+Learning: Hybrid retrieval (embedding + keyword scoring) improves relevance.
+
+6. Testing & Debugging
+
+Attempt: Ran pytest; some tests failed due to environment conflicts.
+
+Fix: Adjusted environment setup; basic test coverage now runs.
+
+Learning: Even partial testing helps catch regressions in retrieval and generation.
+
+---- Notes & Lessons Learned ----
+
+LLM responses depend heavily on chunk filtering and retrieval logic.
+
+Using stub embeddings is useful for local testing, but real OpenAI embeddings improve answer relevance.
+
+Document your workflow—even failures are part of the learning process.
+
+---- Summary ----
+
+This project shows not only a working RAG setup but also all the steps, experiments, and troubleshooting efforts.
+
+Customer Question Example
+
+Can a customer return a damaged blender after 20 days?
+
+From the docs:
+
+Items must be in original packaging with proof of purchase.
+
+Warranty: 12–24 months depending on SKU, covers manufacturing defects.
+
+Answer:
+
+If the blender is damaged due to a manufacturing defect, yes, it’s covered under warranty even after 20 days.
+
+If it’s customer-caused damage, the return policy likely doesn’t cover it.

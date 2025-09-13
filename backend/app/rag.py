@@ -5,7 +5,7 @@ from .settings import settings
 from .ingest import chunk_text, doc_hash
 from qdrant_client import QdrantClient, models as qm
 import re
-
+import openai
 
 # ---- Simple local embedder (deterministic) ----
 def _tokenize(s: str) -> List[str]:
@@ -152,9 +152,19 @@ class Metrics:
         }
 
 class RAGEngine:
+  
     def __init__(self):
-        self.embedder = LocalEmbedder(dim=384)
-        # Vector store selection
+        # ---- Embedding ----
+        if settings.openai_api_key:
+            try:
+                self.embedder = OpenAIEmbeddings(openai_api_key=settings.openai_api_key)
+            except Exception as e:
+                print("[WARN] Failed to init OpenAIEmbeddings:", e)
+                self.embedder = LocalEmbedder(dim=384)
+        else:
+            self.embedder = LocalEmbedder(dim=384)
+
+        # ---- Vector store ----
         if settings.vector_store == "qdrant":
             try:
                 self.store = QdrantStore(collection=settings.collection_name, dim=384)
@@ -163,7 +173,7 @@ class RAGEngine:
         else:
             self.store = InMemoryStore(dim=384)
 
-        # LLM selection
+        # ---- LLM selection ----
         if settings.llm_provider == "openai" and settings.openai_api_key:
             try:
                 self.llm = OpenAILLM(api_key=settings.openai_api_key)
@@ -175,9 +185,13 @@ class RAGEngine:
             self.llm = StubLLM()
             self.llm_name = "stub"
 
+        # ---- Metrics & counters ----
         self.metrics = Metrics()
+
+        # ---- Document tracking ----
         self._doc_titles = set()
         self._chunk_count = 0
+
 
     def ingest_chunks(self, chunks: List[Dict]) -> Tuple[int, int]:
         vectors = []
@@ -203,38 +217,54 @@ class RAGEngine:
         self.store.upsert(vectors, metas)
         return (len(self._doc_titles) - len(doc_titles_before), len(metas))
 
-    def retrieve(self, query: str, k: int = 4) -> List[Dict]:
-        t0 = time.time()
+    def retrieve(self, query: str, k: int = 6) -> List[Dict]:
+    # Embed query and search top-k from vector store
         qv = self.embedder.embed(query)
         results = self.store.search(qv, k=k)
-        self.metrics.add_retrieval((time.time()-t0)*1000.0)
         return [meta for score, meta in results]
 
 
-    def keyword_filter(self, query: str, chunks: List[Dict]) -> List[Dict]:
-        keywords = set(query.lower().split())
-        filtered = []
+    def keyword_filter(self, query: str, chunks: List[Dict], top_k: int = 4) -> List[Dict]:
+        q_tokens = set(query.lower().split())
+        scored_chunks = []
         for chunk in chunks:
-            chunk_text_tokens = set(chunk.get("text", "").lower().split())
-            # Require at least 50% of query keywords to appear in the chunk
-            if len(keywords & chunk_text_tokens) / len(keywords) >= 0.5:
-                if any(kw in (chunk.get("section") or "").lower() for kw in ["shipping", "delivery", "sla"]):
-                    filtered.append(chunk)
-        return filtered
+            c_tokens = set(chunk.get("text", "").lower().split())
+            score = len(q_tokens & c_tokens)
+            if score > 0:
+                scored_chunks.append((score, chunk))
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        top_chunks = [c for score, c in scored_chunks[:top_k]]
+        return top_chunks
 
 
-    def generate(self, query: str, contexts: List[Dict]) -> str:
-        t0 = time.time()
+    def generate(self, query: str, contexts: List[Dict] = None) -> str:
+            t0 = time.time()
 
-        relevant_contexts = self.keyword_filter(query, contexts)  # assumes you add keyword_filter as a method
-        if not relevant_contexts:
-            # fallback to top 2 if nothing matches
-            relevant_contexts = contexts[:2]
+            # Step 1: Retrieve top chunks if none provided
+            if contexts is None:
+                contexts = self.retrieve(query, k=6)
+
+            # Step 2: Optional keyword boost (hybrid approach)
+            q_tokens = set(query.lower().split())
+            scored_chunks = []
+            for c in contexts:
+                c_tokens = set(c.get("text", "").lower().split())
+                score = len(q_tokens & c_tokens)
+                scored_chunks.append((score, c))
+
+            scored_chunks.sort(key=lambda x: x[0], reverse=True)
+
+            # Keep top 4 most relevant chunks by keyword score, fallback to embedding top if all zero
+            top_chunks = [c for score, c in scored_chunks if score > 0]
+            if not top_chunks:
+                top_chunks = contexts[:4]
+
+            # Step 3: Generate answer with LLM
+            answer = self.llm.generate(query, top_chunks)
+            self.metrics.add_generation((time.time() - t0) * 1000.0)
+            return answer
 
 
-        answer = self.llm.generate(query, relevant_contexts)
-        self.metrics.add_generation((time.time()-t0)*1000.0)
-        return answer
 
     def stats(self) -> Dict:
         m = self.metrics.summary()
@@ -247,36 +277,64 @@ class RAGEngine:
         }
 
 # ---- Helpers ----
+# ---- Helpers ----
 def build_chunks_from_docs(docs: List[Dict], chunk_size: int = 700, chunk_overlap: int = 80) -> List[Dict]:
+ 
     chunks = []
 
     for doc in docs:
-        text = doc["text"]
-        # Split by headings (keep heading in chunk)
+        text = doc.get("text", "")
+        title = doc.get("title", "")
+        print(f"\n[DEBUG] Processing document: {title}")  # <-- show doc title
+        
+        # Split text by headings, keeping the headings
         sections = re.split(r'(#+ .+)', text)
-        current_title = doc.get("title", "")
-        current_chunk = ""
         current_section = ""
+        current_text = ""
 
         for sec in sections:
             sec = sec.strip()
-            if sec.startswith("#"):  # heading line
-                if current_chunk:
-                    chunks.append({
-                        "title": current_title,
-                        "section": current_section,
-                        "text": current_chunk.strip()
-                    })
-                    current_chunk = ""
-                current_section = sec
+            if not sec:
+                continue
+
+            if sec.startswith("#"):  # Heading line
+                # Append the previous section's text
+                if current_text:
+                    start = 0
+                    while start < len(current_text):
+                        end = min(start + chunk_size, len(current_text))
+                        chunk_text = current_text[start:end].strip()
+                        if chunk_text:
+                            chunks.append({
+                                "title": title,
+                                "section": current_section,
+                                "text": chunk_text
+                            })
+                            print(f"[DEBUG] Added chunk from section: {current_section[:50]}...")  # <-- debug section
+                            print(f"[DEBUG] Chunk text preview: {chunk_text[:80]}...\n")  # preview first 80 chars
+                        start += chunk_size - chunk_overlap
+                    current_text = ""
+
+                current_section = sec  # Update to new heading
+                print(f"[DEBUG] New section found: {current_section}")  # <-- debug new heading
             else:
-                current_chunk += sec + "\n"
+                current_text += sec + "\n"
 
-        if current_chunk:
-            chunks.append({
-                "title": current_title,
-                "section": current_section,
-                "text": current_chunk.strip()
-            })
+        # Append the last section
+        if current_text:
+            start = 0
+            while start < len(current_text):
+                end = min(start + chunk_size, len(current_text))
+                chunk_text = current_text[start:end].strip()
+                if chunk_text:
+                    chunks.append({
+                        "title": title,
+                        "section": current_section,
+                        "text": chunk_text
+                    })
+                    print(f"[DEBUG] Added last chunk from section: {current_section[:50]}...")
+                    print(f"[DEBUG] Chunk text preview: {chunk_text[:80]}...\n")
+                start += chunk_size - chunk_overlap
 
+    print(f"[DEBUG] Total chunks created: {len(chunks)}")
     return chunks
